@@ -1,0 +1,66 @@
+name: Decode binary assets
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "assets-b64/**"
+      - ".github/workflows/decode-assets.yml"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: decode-assets
+  cancel-in-progress: false
+
+jobs:
+  decode:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Decode and extract binary assets
+        run: |
+          set -euo pipefail
+          if [ ! -d assets-b64 ]; then
+            echo "No assets-b64 directory; nothing to decode."
+            exit 0
+          fi
+          cat assets-b64/part-* | base64 -d > /tmp/assets.tar
+          tar -xf /tmp/assets.tar
+          rm -rf assets-b64
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Add decoded binary assets (images and fonts)"
+            git push
+          fi
+
+      - name: Try to enable GitHub Pages from main root
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          gh api --method POST "repos/${{ github.repository }}/pages" \
+            -H "Accept: application/vnd.github+json" \
+            -f "build_type=legacy" \
+            -f "source[branch]=main" \
+            -f "source[path]=/"
+          POST_STATUS=$?
+          gh api --method PUT "repos/${{ github.repository }}/pages" \
+            -H "Accept: application/vnd.github+json" \
+            -f "cname=$(tr -d '[:space:]' < CNAME)" \
+            -f "source[branch]=main" \
+            -f "source[path]=/" \
+            -F "https_enforced=true"
+          exit 0
